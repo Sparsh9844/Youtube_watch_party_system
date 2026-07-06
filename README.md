@@ -7,8 +7,12 @@
 ![Stack](https://img.shields.io/badge/Socket.IO-010101?style=flat&logo=socketdotio&logoColor=white)
 ![Stack](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white)
 
+Live link - https://youtube-watch-party-system-rust.vercel.app/
+
 Backend on Railways - [youtubewatchpartysystem-production.up.railway.app](https://youtubewatchpartysystem-production.up.railway.app/)
+
 Frontend on Vercel - https://youtube-watch-party-system-rust.vercel.app/
+
 
 ---
 
