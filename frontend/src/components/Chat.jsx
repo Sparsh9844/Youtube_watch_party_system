@@ -9,61 +9,47 @@ const ROLE_COLORS = {
 };
 
 const ROLE_LABELS = {
-  host:        "Host",
-  moderator:   "Mod",
-  participant: null, // don't show badge for plain participants
+  host:      "Host",
+  moderator: "Mod",
 };
 
 function formatTime(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/**
- * Chat
- * Props:
- *  - roomCode : string
- *  - me       : { socketId, username, role }
- *  - onUnread : fn(count) — called when new messages arrive while tab is hidden
- */
 export default function Chat({ roomCode, me, onUnread }) {
   const { toast } = useToast();
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
-  const bottomRef = useRef(null);
-  const listRef   = useRef(null);
+  const bottomRef    = useRef(null);
+  const listRef      = useRef(null);
+  const textareaRef  = useRef(null);
+  const isAtBottom   = useRef(true);
 
-  // Track whether the chat panel is visible (parent toggles via CSS or mount)
-  // We use a simple "auto-scroll unless user scrolled up" pattern.
-  const isAtBottomRef = useRef(true);
-
-  // ─── Load history on mount ────────────────────────────────────
+  // ─── Load history ──────────────────────────────────────────────
   useEffect(() => {
     socket.emit("get_messages", { roomCode }, (res) => {
       if (res.success) setMessages(res.data);
     });
   }, [roomCode]);
 
-  // ─── Listen for incoming messages ────────────────────────────
+  // ─── Live messages ─────────────────────────────────────────────
   useEffect(() => {
     const handleNew = (msg) => {
       setMessages((prev) => {
-        // Deduplicate — socket.io can deliver the same event twice in StrictMode dev
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
-      if (msg.userId !== socket.id) {
-        onUnread?.();
-      }
+      if (msg.userId !== socket.id) onUnread?.();
     };
     socket.on("new_message", handleNew);
     return () => socket.off("new_message", handleNew);
   }, [roomCode, onUnread]);
 
-  // ─── Auto-scroll ─────────────────────────────────────────────
+  // ─── Auto-scroll ───────────────────────────────────────────────
   useEffect(() => {
-    if (isAtBottomRef.current) {
+    if (isAtBottom.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
@@ -71,10 +57,10 @@ export default function Chat({ roomCode, me, onUnread }) {
   const handleScroll = () => {
     const el = listRef.current;
     if (!el) return;
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   };
 
-  // ─── Send ─────────────────────────────────────────────────────
+  // ─── Send ──────────────────────────────────────────────────────
   const handleSend = () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -84,6 +70,10 @@ export default function Chat({ roomCode, me, onUnread }) {
       if (!res.success) toast(res.message, "error");
     });
     setInput("");
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -93,34 +83,52 @@ export default function Chat({ roomCode, me, onUnread }) {
     }
   };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+  const handleInput = (e) => {
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px";
+  };
 
-      {/* ── Message list ── */}
+  const canSend = input.trim().length > 0 && !sending;
+
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      background: "var(--bg2)",
+    }}>
+
+      {/* ── Message list ────────────────────────────────────────── */}
       <div
         ref={listRef}
         onScroll={handleScroll}
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "12px",
+          padding: "12px 14px",
           display: "flex",
           flexDirection: "column",
           gap: "2px",
+          // Smooth overscroll on iOS
+          WebkitOverflowScrolling: "touch",
         }}
       >
+        {/* Empty state */}
         {messages.length === 0 && (
           <div style={{
             flex: 1, display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            color: "var(--text2)", fontSize: "13px", gap: "8px", textAlign: "center",
-            padding: "32px 16px",
+            color: "var(--text2)", gap: "10px", textAlign: "center",
+            padding: "40px 20px",
           }}>
-            <span style={{ fontSize: "32px" }}>💬</span>
-            <span>No messages yet.<br />Say hi to start the conversation!</span>
+            <span style={{ fontSize: "36px" }}>💬</span>
+            <span style={{ fontSize: "14px", lineHeight: 1.5 }}>
+              No messages yet.<br />Say hi to start the conversation!
+            </span>
           </div>
         )}
 
+        {/* Messages */}
         {messages.map((msg, i) => {
           const isMe        = msg.userId === socket.id;
           const prevMsg     = messages[i - 1];
@@ -136,30 +144,39 @@ export default function Chat({ roomCode, me, onUnread }) {
                 flexDirection: isMe ? "row-reverse" : "row",
                 alignItems: "flex-end",
                 gap: "8px",
-                marginTop: isContinued ? "2px" : "10px",
+                marginTop: isContinued ? "2px" : "12px",
               }}
             >
-              {/* Avatar — only show on first message in a group */}
+              {/* Avatar */}
               {!isContinued ? (
                 <div style={{
-                  width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                  width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
                   background: isMe ? "var(--accent)" : roleColor,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "12px", fontWeight: 700, color: "#fff",
+                  fontSize: "13px", fontWeight: 700, color: "#fff",
                   alignSelf: "flex-end",
                 }}>
                   {msg.username[0].toUpperCase()}
                 </div>
               ) : (
-                <div style={{ width: 28, flexShrink: 0 }} />
+                <div style={{ width: 30, flexShrink: 0 }} />
               )}
 
-              {/* Bubble */}
-              <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
-                {/* Name + role badge — only on first in group */}
+              {/* Bubble + meta */}
+              <div style={{
+                maxWidth: "78%",
+                display: "flex", flexDirection: "column",
+                alignItems: isMe ? "flex-end" : "flex-start",
+              }}>
+                {/* Name + role */}
                 {!isContinued && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "3px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 700, color: isMe ? "var(--accent)" : "var(--text)" }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "5px", marginBottom: "4px",
+                  }}>
+                    <span style={{
+                      fontSize: "12px", fontWeight: 700,
+                      color: isMe ? "var(--accent)" : "var(--text)",
+                    }}>
                       {isMe ? "You" : msg.username}
                     </span>
                     {roleLabel && (
@@ -172,23 +189,35 @@ export default function Chat({ roomCode, me, onUnread }) {
                   </div>
                 )}
 
+                {/* Bubble */}
                 <div style={{
-                  background: isMe ? "var(--accent)" : "var(--bg3)",
+                  background: isMe
+                    ? "linear-gradient(135deg, #2f81f7, #1a6fd8)"
+                    : "var(--bg3)",
                   color: isMe ? "#fff" : "var(--text)",
                   border: isMe ? "none" : "1px solid var(--border)",
                   borderRadius: isMe
-                    ? isContinued ? "12px 4px 12px 12px" : "12px 4px 12px 12px"
-                    : isContinued ? "4px 12px 12px 12px" : "4px 12px 12px 12px",
-                  padding: "8px 12px",
-                  fontSize: "13px",
-                  lineHeight: 1.5,
+                    ? "18px 4px 18px 18px"
+                    : "4px 18px 18px 18px",
+                  padding: "9px 14px",
+                  fontSize: "14px",
+                  lineHeight: 1.55,
                   wordBreak: "break-word",
                   whiteSpace: "pre-wrap",
+                  boxShadow: isMe
+                    ? "0 2px 8px rgba(47,129,247,0.3)"
+                    : "0 1px 3px rgba(0,0,0,0.2)",
                 }}>
                   {msg.message}
                 </div>
 
-                <span style={{ fontSize: "10px", color: "var(--text2)", marginTop: "3px" }}>
+                {/* Timestamp */}
+                <span style={{
+                  fontSize: "10px", color: "var(--text2)",
+                  marginTop: "3px",
+                  paddingLeft: isMe ? 0 : "2px",
+                  paddingRight: isMe ? "2px" : 0,
+                }}>
                   {formatTime(msg.createdAt)}
                 </span>
               </div>
@@ -198,7 +227,7 @@ export default function Chat({ roomCode, me, onUnread }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* ── Input bar ── */}
+      {/* ── Input bar ───────────────────────────────────────────── */}
       <div style={{
         padding: "10px 12px",
         borderTop: "1px solid var(--border)",
@@ -206,50 +235,65 @@ export default function Chat({ roomCode, me, onUnread }) {
         gap: "8px",
         alignItems: "flex-end",
         background: "var(--bg2)",
+        // Stick above iOS keyboard
+        paddingBottom: "max(10px, env(safe-area-inset-bottom))",
       }}>
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message everyone…"
+          onInput={handleInput}
+          placeholder="Message…"
           rows={1}
           maxLength={500}
           style={{
             flex: 1,
             background: "var(--bg3)",
             border: "1px solid var(--border)",
-            borderRadius: "8px",
+            borderRadius: "20px",
             color: "var(--text)",
-            fontSize: "13px",
-            padding: "8px 12px",
+            fontSize: "15px",        // 15px prevents iOS zoom on focus
+            padding: "9px 16px",
             outline: "none",
             resize: "none",
             lineHeight: 1.5,
-            maxHeight: "80px",
+            maxHeight: "100px",
             overflowY: "auto",
             fontFamily: "inherit",
+            WebkitAppearance: "none",
+            transition: "border-color 0.15s",
           }}
-          onInput={(e) => {
-            // Auto-grow
-            e.target.style.height = "auto";
-            e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
-          }}
+          onFocus={(e) => { e.target.style.borderColor = "var(--accent)"; }}
+          onBlur={(e)  => { e.target.style.borderColor = "var(--border)"; }}
         />
+
+        {/* Send button */}
         <button
           onClick={handleSend}
-          disabled={!input.trim() || sending}
+          disabled={!canSend}
           style={{
-            width: 36, height: 36, flexShrink: 0,
-            background: input.trim() ? "var(--accent)" : "var(--bg3)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            cursor: input.trim() ? "pointer" : "default",
+            width: 40, height: 40, flexShrink: 0,
+            background: canSend
+              ? "linear-gradient(135deg, #2f81f7, #1a6fd8)"
+              : "var(--bg3)",
+            border: canSend ? "none" : "1px solid var(--border)",
+            borderRadius: "50%",
+            cursor: canSend ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "16px",
-            transition: "background 0.15s",
+            fontSize: "18px",
+            transition: "background 0.15s, transform 0.1s",
+            boxShadow: canSend ? "0 2px 8px rgba(47,129,247,0.4)" : "none",
+            transform: canSend ? "scale(1)" : "scale(0.9)",
           }}
+          onMouseDown={(e) => { if (canSend) e.currentTarget.style.transform = "scale(0.92)"; }}
+          onMouseUp={(e)   => { e.currentTarget.style.transform = canSend ? "scale(1)" : "scale(0.9)"; }}
         >
-          ➤
+          {sending ? (
+            <span style={{ fontSize: "13px", color: "var(--text2)" }}>…</span>
+          ) : (
+            <span style={{ color: canSend ? "#fff" : "var(--text2)", marginLeft: "2px" }}>➤</span>
+          )}
         </button>
       </div>
     </div>

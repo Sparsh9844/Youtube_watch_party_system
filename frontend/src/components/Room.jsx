@@ -13,15 +13,16 @@ function RoomInner({ room: initialRoom, onLeave }) {
   const [room,        setRoom]       = useState(initialRoom);
   const [kicked,      setKicked]     = useState(false);
   const [leaving,     setLeaving]    = useState(false);
-  const [sidebarTab,  setSidebarTab] = useState("chat");
+  const [activeTab,   setActiveTab]  = useState("video"); // "video" | "chat" | "participants"
   const [unreadCount, setUnread]     = useState(0);
-  const [sheetOpen,   setSheetOpen]  = useState(false);
+  // desktop sidebar tab
+  const [sidebarTab,  setSidebarTab] = useState("chat");
 
   const me           = room.participants.find((p) => p.socketId === socket.id);
   const myRole       = me?.role || "participant";
   const isController = myRole === "host" || myRole === "moderator";
 
-  // ─── Socket events ────────────────────────────────────────────
+  // ─── Socket events ─────────────────────────────────────────
   useEffect(() => {
     socket.on("user_joined", (d) => {
       setRoom((p) => ({ ...p, participants: d.participants }));
@@ -51,16 +52,15 @@ function RoomInner({ room: initialRoom, onLeave }) {
       .forEach((e) => socket.off(e));
   }, [toast]);
 
-  // ─── Handlers ─────────────────────────────────────────────────
-  const switchTab = useCallback((key) => {
-    setSidebarTab(key);
-    if (key === "chat") setUnread(0);
+  // ─── Handlers ──────────────────────────────────────────────
+  const switchMobileTab = useCallback((tab) => {
+    setActiveTab(tab);
+    if (tab === "chat") setUnread(0);
   }, []);
 
-  const openSheet = useCallback((key) => {
+  const switchDesktopTab = useCallback((key) => {
     setSidebarTab(key);
     if (key === "chat") setUnread(0);
-    setSheetOpen(true);
   }, []);
 
   const handleLeave = () => {
@@ -70,15 +70,14 @@ function RoomInner({ room: initialRoom, onLeave }) {
 
   const handleVideoUpdate = useCallback((v) => setRoom((p) => ({ ...p, video: v })), []);
 
-  // Uses functional setState so we always read current tab without stale closure
   const handleUnread = useCallback(() => {
-    setSidebarTab((tab) => {
+    setActiveTab((tab) => {
       if (tab !== "chat") setUnread((n) => n + 1);
       return tab;
     });
   }, []);
 
-  // ─── Kicked screen ────────────────────────────────────────────
+  // ─── Kicked screen ──────────────────────────────────────────
   if (kicked) {
     return (
       <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:"16px", textAlign:"center", padding:"24px", background:"var(--bg)" }}>
@@ -92,51 +91,17 @@ function RoomInner({ room: initialRoom, onLeave }) {
     );
   }
 
-  // ─── Tab bar ──────────────────────────────────────────────────
-  const tabBar = (
-    <div style={{ display:"flex", borderBottom:"1px solid var(--border)", flexShrink:0 }}>
-      {[
-        { key:"chat",         label:"💬 Chat",        badge: unreadCount },
-        { key:"participants", label:"👥 Participants", badge: null },
-      ].map(({ key, label, badge }) => (
-        <button key={key} onClick={() => switchTab(key)} style={{
-          flex:1, padding:"13px 8px", background:"transparent", border:"none",
-          borderBottom: sidebarTab === key ? "2px solid var(--accent)" : "2px solid transparent",
-          color: sidebarTab === key ? "var(--text)" : "var(--text2)",
-          fontWeight:600, fontSize:"13px", cursor:"pointer",
-          display:"flex", alignItems:"center", justifyContent:"center", gap:"6px",
-        }}>
-          {label}
-          {badge > 0 && (
-            <span style={{ background:"var(--accent)", color:"#fff", borderRadius:"10px", fontSize:"10px", fontWeight:700, padding:"1px 7px", minWidth:18, textAlign:"center" }}>
-              {badge > 99 ? "99+" : badge}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-
-  // ─── Sidebar content ─────────────────────────────────────────
-  // BOTH tabs always rendered — no conditional mounting.
-  // This ensures Chat's socket.on("new_message") is registered exactly once
-  // and never re-registers due to mount/unmount from tab switching.
-  const sidebarContent = (
-    <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative" }}>
-      {/* Participants — always in DOM, hidden via display:none when inactive */}
-      <div style={{
-        display: sidebarTab === "participants" ? "flex" : "none",
-        flexDirection:"column", flex:1, overflow:"hidden",
-      }}>
+  // ─── Shared panel content (desktop sidebar + mobile panels) ─
+  // Both Chat and Participants are always mounted — Chat never loses
+  // its socket listener due to tab switching.
+  const panelContent = (
+    <div style={{ flex:1, minHeight:0, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative" }}>
+      <div style={{ display: activeTab === "participants" || sidebarTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
         </div>
       </div>
-      {/* Chat — always in DOM, hidden via display:none when inactive */}
-      <div style={{
-        display: sidebarTab === "chat" ? "flex" : "none",
-        flexDirection:"column", flex:1, overflow:"hidden",
-      }}>
+      <div style={{ display: activeTab === "chat" || sidebarTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
         <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
       </div>
     </div>
@@ -145,7 +110,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100dvh", width:"100%", background:"var(--bg)", overflow:"hidden" }}>
 
-      {/* ── Top bar ── */}
+      {/* ════════ TOP BAR ════════ */}
       <header style={{
         width:"100%", flexShrink:0,
         display:"flex", alignItems:"center", justifyContent:"space-between",
@@ -186,11 +151,9 @@ function RoomInner({ room: initialRoom, onLeave }) {
         </div>
       </header>
 
-      {/* ── Body ── */}
-      <div className="room-body">
-
-        {/* Video */}
-        <main className="room-video">
+      {/* ════════ DESKTOP BODY (≥700px) ════════ */}
+      <div className="desktop-body">
+        <main className="desktop-video">
           <VideoPlayer
             roomCode={room.roomCode}
             video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
@@ -198,73 +161,127 @@ function RoomInner({ room: initialRoom, onLeave }) {
             onVideoUpdate={handleVideoUpdate}
           />
         </main>
-
-        {/* ── Sidebar (desktop inline / mobile sheet) ──
-            This is the ONLY place sidebarContent is rendered.
-            On desktop it sits inline to the right of the video.
-            On mobile it becomes a bottom sheet when sheetOpen=true.
-        ── */}
-        <aside className={`room-sidebar${sheetOpen ? " is-open" : ""}`}>
-          {/* Backdrop — only visible on mobile when sheet is open */}
-          {sheetOpen && (
-            <div
-              className="room-backdrop"
-              onClick={() => setSheetOpen(false)}
-            />
-          )}
-          {/* Panel */}
-          <div className="room-panel">
-            <div className="room-handle-row">
-              <div style={{ width:40, height:4, borderRadius:2, background:"var(--border)" }} />
+        <aside className="desktop-sidebar">
+          {/* Desktop tab bar */}
+          <div style={{ display:"flex", borderBottom:"1px solid var(--border)", flexShrink:0 }}>
+            {[
+              { key:"chat",         label:"💬 Chat",        badge: unreadCount },
+              { key:"participants", label:"👥 Participants", badge: null },
+            ].map(({ key, label, badge }) => (
+              <button key={key} onClick={() => switchDesktopTab(key)} style={{
+                flex:1, padding:"13px 8px", background:"transparent", border:"none",
+                borderBottom: sidebarTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+                color: sidebarTab === key ? "var(--text)" : "var(--text2)",
+                fontWeight:600, fontSize:"13px", cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:"6px",
+              }}>
+                {label}
+                {badge > 0 && (
+                  <span style={{ background:"var(--accent)", color:"#fff", borderRadius:"10px", fontSize:"10px", fontWeight:700, padding:"1px 7px", minWidth:18, textAlign:"center" }}>
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {/* Desktop panel content */}
+          <div style={{ flex:1, minHeight:0, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative" }}>
+            <div style={{ display: sidebarTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
+              <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+                <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
+              </div>
             </div>
-            {tabBar}
-            {sidebarContent}
+            <div style={{ display: sidebarTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
+              <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+            </div>
           </div>
         </aside>
       </div>
 
-      {/* ── Mobile bottom nav (hidden on desktop) ── */}
-      <nav className="room-bottom-nav">
-        <button onClick={() => openSheet("chat")} style={{ ...navBtn, position:"relative" }}>
-          <span style={{ fontSize:"20px" }}>💬</span>
-          <span style={{ fontSize:"10px", fontWeight:600 }}>Chat</span>
-          {unreadCount > 0 && (
-            <span style={{
-              position:"absolute", top:6, right:"calc(50% - 22px)",
-              background:"var(--accent)", color:"#fff",
-              borderRadius:"10px", fontSize:"9px", fontWeight:700,
-              padding:"1px 5px", minWidth:16, textAlign:"center",
-            }}>{unreadCount > 99 ? "99+" : unreadCount}</span>
-          )}
-        </button>
-        <button onClick={() => openSheet("participants")} style={navBtn}>
-          <span style={{ fontSize:"20px" }}>👥</span>
-          <span style={{ fontSize:"10px", fontWeight:600 }}>{room.participants.length} People</span>
-        </button>
-        <button onClick={handleLeave} disabled={leaving}
-          style={{ ...navBtn, color:"var(--red)", opacity: leaving ? 0.5 : 1 }}>
-          <span style={{ fontSize:"20px" }}>🚪</span>
-          <span style={{ fontSize:"10px", fontWeight:600 }}>{leaving ? "…" : "Leave"}</span>
-        </button>
-      </nav>
+      {/* ════════ MOBILE BODY (<700px) ════════
+          Layout: video strip → tab bar → content panel
+          Everything fits in 100dvh — no scrolling
+      ════════ */}
+      <div className="mobile-body">
 
-      {/* ── Responsive styles ── */}
+        {/* Video strip — fixed 16:9 aspect */}
+        <div className="mobile-video">
+          <VideoPlayer
+            roomCode={room.roomCode}
+            video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
+            isController={isController}
+            onVideoUpdate={handleVideoUpdate}
+          />
+        </div>
+
+        {/* Tab switcher */}
+        <div className="mobile-tabs">
+          {[
+            { key:"video",        emoji:"▶",  label:"Video" },
+            { key:"chat",         emoji:"💬", label:"Chat",  badge: unreadCount },
+            { key:"participants", emoji:"👥", label:`People (${room.participants.length})` },
+          ].map(({ key, emoji, label, badge }) => (
+            <button key={key} onClick={() => switchMobileTab(key)} style={{
+              flex:1, display:"flex", flexDirection:"column",
+              alignItems:"center", justifyContent:"center", gap:"2px",
+              background:"transparent", border:"none",
+              borderBottom: activeTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+              color: activeTab === key ? "var(--text)" : "var(--text2)",
+              fontWeight: activeTab === key ? 700 : 500,
+              fontSize:"11px", cursor:"pointer", padding:"8px 4px",
+              position:"relative",
+            }}>
+              <span style={{ fontSize:"18px" }}>{emoji}</span>
+              <span>{label}</span>
+              {badge > 0 && (
+                <span style={{
+                  position:"absolute", top:4, right:"calc(50% - 18px)",
+                  background:"var(--accent)", color:"#fff",
+                  borderRadius:"10px", fontSize:"9px", fontWeight:700,
+                  padding:"1px 5px", minWidth:15, textAlign:"center",
+                }}>{badge > 99 ? "99+" : badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Content panel — fills all remaining space */}
+        <div className="mobile-panel">
+          {/* Video panel (just shows a "watching video" note when active) */}
+          {activeTab === "video" && (
+            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--text2)", fontSize:"13px" }}>
+              ↑ Video is playing above
+            </div>
+          )}
+          {/* Chat panel */}
+          <div style={{ display: activeTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
+            <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+          </div>
+          {/* Participants panel */}
+          <div style={{ display: activeTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
+            <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+              <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ════════ RESPONSIVE CSS ════════ */}
       <style>{`
-        /* DESKTOP ≥ 700px */
-        .room-body {
+        /* ── DESKTOP ≥ 700px ── */
+        .desktop-body {
           display: flex;
           flex-direction: row;
           flex: 1;
           overflow: hidden;
-          position: relative;
         }
-        .room-video {
+        .desktop-video {
           flex: 1;
           padding: 20px;
           overflow-y: auto;
           min-width: 0;
         }
-        .room-sidebar {
+        .desktop-sidebar {
           width: 300px;
           flex-shrink: 0;
           border-left: 1px solid var(--border);
@@ -273,78 +290,50 @@ function RoomInner({ room: initialRoom, onLeave }) {
           flex-direction: column;
           overflow: hidden;
         }
-        .room-backdrop  { display: none; }
-        .room-handle-row { display: none; }
-        .room-panel {
-          display: flex;
-          flex-direction: column;
-          flex: 1;
-          overflow: hidden;
-        }
-        .room-bottom-nav { display: none; }
+        /* Hide mobile layout on desktop */
+        .mobile-body  { display: none; }
 
-        /* MOBILE < 700px */
+        /* ── MOBILE < 700px ── */
         @media (max-width: 699px) {
-          .room-body {
-            flex-direction: column;
-            overflow-y: auto;
-          }
-          .room-video {
-            flex: none;
-            padding: 12px 12px 8px;
-          }
+          /* Hide desktop layout */
+          .desktop-body { display: none; }
 
-          /* Sidebar: hidden by default on mobile */
-          .room-sidebar {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
-            height: 72%;
-            border-left: none;
-            border-top: 1px solid var(--border);
-            border-radius: 18px 18px 0 0;
-            z-index: 200;
-            transform: translateY(100%);
-            transition: transform 0.28s cubic-bezier(0.32,0.72,0,1);
+          /* Mobile layout fills the rest of the viewport after the header */
+          .mobile-body {
             display: flex;
             flex-direction: column;
+            flex: 1;
             overflow: hidden;
-          }
-          /* Sidebar: visible when sheet is open */
-          .room-sidebar.is-open {
-            transform: translateY(0);
+            min-height: 0;
           }
 
-          /* Backdrop behind the sheet */
-          .room-backdrop {
-            display: block;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.55);
-            z-index: 199;
-            animation: fadeIn 0.2s ease;
-          }
-
-          /* Drag handle — only show on mobile */
-          .room-handle-row {
-            display: flex;
-            justify-content: center;
-            padding: 10px 0 4px;
+          /* Video strip — fixed 16:9, never taller than 38% of viewport */
+          .mobile-video {
             flex-shrink: 0;
+            width: 100%;
+            max-height: 38dvh;
+            padding: 8px 8px 0;
+            background: #000;
           }
 
-          /* Bottom nav */
-          .room-bottom-nav {
+          /* Tab bar */
+          .mobile-tabs {
             display: flex;
             flex-shrink: 0;
             background: var(--bg2);
             border-top: 1px solid var(--border);
-            height: 60px;
+            border-bottom: 1px solid var(--border);
           }
-        }
 
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
+          /* Panel fills everything below tab bar */
+          .mobile-panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg2);
+          }
         }
       `}</style>
     </div>
@@ -353,16 +342,10 @@ function RoomInner({ room: initialRoom, onLeave }) {
 
 const navBtn = {
   flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "3px",
-  background: "transparent",
-  border: "none",
-  color: "var(--text2)",
-  cursor: "pointer",
-  padding: "8px 4px",
+  display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center",
+  gap: "3px", background: "transparent", border: "none",
+  color: "var(--text2)", cursor: "pointer", padding: "8px 4px",
 };
 
 export default function Room(props) {
