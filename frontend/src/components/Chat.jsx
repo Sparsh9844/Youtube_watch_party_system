@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import socket from "../socket/socket";
+import { useToast } from "./Toast";
 
 const ROLE_COLORS = {
   host:        "#f85149",
@@ -26,6 +27,7 @@ function formatTime(dateStr) {
  *  - onUnread : fn(count) — called when new messages arrive while tab is hidden
  */
 export default function Chat({ roomCode, me, onUnread }) {
+  const { toast } = useToast();
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [sending,  setSending]  = useState(false);
@@ -46,15 +48,18 @@ export default function Chat({ roomCode, me, onUnread }) {
   // ─── Listen for incoming messages ────────────────────────────
   useEffect(() => {
     const handleNew = (msg) => {
-      setMessages((prev) => [...prev, msg]);
-      // Notify parent of unread if not from me
+      setMessages((prev) => {
+        // Deduplicate — socket.io can deliver the same event twice in StrictMode dev
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
       if (msg.userId !== socket.id) {
         onUnread?.();
       }
     };
     socket.on("new_message", handleNew);
     return () => socket.off("new_message", handleNew);
-  }, [roomCode]);
+  }, [roomCode, onUnread]);
 
   // ─── Auto-scroll ─────────────────────────────────────────────
   useEffect(() => {
@@ -76,7 +81,7 @@ export default function Chat({ roomCode, me, onUnread }) {
     setSending(true);
     socket.emit("send_message", { roomCode, message: text }, (res) => {
       setSending(false);
-      if (!res.success) alert(res.message);
+      if (!res.success) toast(res.message, "error");
     });
     setInput("");
   };
