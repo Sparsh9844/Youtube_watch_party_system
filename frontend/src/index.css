@@ -1,0 +1,36 @@
+/* Reset Vite's default scaffold styles completely */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Full-width root — no artificial width cap or borders */
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sensible defaults for headings and text that our
+   component-level styles will override as needed */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: inherit;
+  font-size: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+p { margin: 0; }
+
+button { font-family: inherit; }
+
+a { color: inherit; text-decoration: none; }
