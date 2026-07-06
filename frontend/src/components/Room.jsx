@@ -8,13 +8,12 @@ const ROLE_COLORS = { host: "#f85149", moderator: "#e67e00", participant: "#3fb9
 const ROLE_BG     = { host: "rgba(248,81,73,0.15)", moderator: "rgba(230,126,0,0.15)", participant: "rgba(63,185,80,0.15)" };
 
 export default function Room({ room: initialRoom, onLeave }) {
-  const [room,        setRoom]       = useState(initialRoom);
-  const [kicked,      setKicked]     = useState(false);
-  const [leaving,     setLeaving]    = useState(false);
-  const [sidebarTab,  setSidebarTab] = useState("chat");
-  const [unreadCount, setUnread]     = useState(0);
-  // On small screens the sidebar slides up as a panel
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [room,        setRoom]        = useState(initialRoom);
+  const [kicked,      setKicked]      = useState(false);
+  const [leaving,     setLeaving]     = useState(false);
+  const [sidebarTab,  setSidebarTab]  = useState("chat");
+  const [unreadCount, setUnread]      = useState(0);
+  const [sheetOpen,   setSheetOpen]   = useState(false);
 
   const me           = room.participants.find((p) => p.socketId === socket.id);
   const myRole       = me?.role || "participant";
@@ -27,13 +26,19 @@ export default function Room({ room: initialRoom, onLeave }) {
     socket.on("participant_removed", (d) => setRoom((p) => ({ ...p, participants: d.participants })));
     socket.on("host_transferred",    (r) => { if (r.success) setRoom((p) => ({ ...p, participants: r.data.participants })); });
     socket.on("kicked", () => setKicked(true));
-    return () => ["user_joined","user_left","role_assigned","participant_removed","host_transferred","kicked"].forEach((e) => socket.off(e));
+    return () => ["user_joined","user_left","role_assigned","participant_removed","host_transferred","kicked"]
+      .forEach((e) => socket.off(e));
   }, []);
 
-  // Clear unread when switching to chat — done in the click handler, not an effect
-  const switchSidebarTab = useCallback((key) => {
+  const switchTab = useCallback((key) => {
     setSidebarTab(key);
     if (key === "chat") setUnread(0);
+  }, []);
+
+  const openSheet = useCallback((key) => {
+    setSidebarTab(key);
+    if (key === "chat") setUnread(0);
+    setSheetOpen(true);
   }, []);
 
   const handleLeave = () => {
@@ -42,6 +47,7 @@ export default function Room({ room: initialRoom, onLeave }) {
   };
 
   const handleVideoUpdate = useCallback((v) => setRoom((p) => ({ ...p, video: v })), []);
+
   const handleUnread = useCallback(() => {
     setSidebarTab((tab) => {
       if (tab !== "chat") setUnread((n) => n + 1);
@@ -49,163 +55,262 @@ export default function Room({ room: initialRoom, onLeave }) {
     });
   }, []);
 
+  /* ── Kicked screen ── */
   if (kicked) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px", textAlign: "center", padding: "clamp(16px,4vw,32px)" }}>
-        <div style={{ fontSize: "clamp(40px,8vw,64px)" }}>🚫</div>
-        <h2 style={{ fontSize: "clamp(18px,4vw,24px)", fontWeight: 700 }}>You've been removed</h2>
-        <p style={{ color: "var(--text2)", fontSize: "clamp(13px,2vw,15px)" }}>The host or a moderator removed you from this watch party.</p>
-        <button onClick={onLeave} style={{ ...btnDanger, padding: "12px 28px", fontSize: "15px" }}>Back to Home</button>
+      <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:"16px", textAlign:"center", padding:"24px", background:"var(--bg)" }}>
+        <div style={{ fontSize:"56px" }}>🚫</div>
+        <h2 style={{ fontSize:"22px", fontWeight:700 }}>You've been removed</h2>
+        <p style={{ color:"var(--text2)", fontSize:"14px" }}>The host or moderator removed you from this watch party.</p>
+        <button onClick={onLeave} style={{ background:"var(--red)", color:"#fff", border:"none", borderRadius:"10px", padding:"12px 28px", fontWeight:700, fontSize:"15px", cursor:"pointer" }}>
+          Back to Home
+        </button>
       </div>
     );
   }
 
-  const sidebarContent = (
-    <>
-      {/* Tab bar */}
-      <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        {[{ key: "participants", label: "Participants", badge: null }, { key: "chat", label: "Chat", badge: unreadCount }].map(({ key, label, badge }) => (
-          <button key={key} onClick={() => switchSidebarTab(key)} style={{
-            flex: 1, padding: "12px 8px", background: "transparent", border: "none",
+  /* ── Sidebar tab content (shared between desktop sidebar and mobile sheet) ── */
+  const tabContent = (
+    <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+      <div style={{ display: sidebarTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
+        </div>
+      </div>
+      <div style={{ display: sidebarTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
+        <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+      </div>
+    </div>
+  );
+
+  const tabBar = (inSheet = false) => (
+    <div style={{ display:"flex", borderBottom:"1px solid var(--border)", flexShrink:0 }}>
+      {[
+        { key:"chat",         label:"💬 Chat",         badge: unreadCount },
+        { key:"participants", label:"👥 Participants",  badge: null },
+      ].map(({ key, label, badge }) => (
+        <button key={key}
+          onClick={() => inSheet ? switchTab(key) : switchTab(key)}
+          style={{
+            flex:1, padding:"13px 8px", background:"transparent", border:"none",
             borderBottom: sidebarTab === key ? "2px solid var(--accent)" : "2px solid transparent",
             color: sidebarTab === key ? "var(--text)" : "var(--text2)",
-            fontWeight: 600, fontSize: "clamp(12px,2vw,13px)", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+            fontWeight:600, fontSize:"13px", cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:"6px",
           }}>
-            {label}
-            {badge > 0 && <span style={{ background: "var(--accent)", color: "#fff", borderRadius: "10px", fontSize: "10px", fontWeight: 700, padding: "1px 6px" }}>{badge > 99 ? "99+" : badge}</span>}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: sidebarTab === "participants" ? "flex" : "none", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
-            <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
-          </div>
-        </div>
-        <div style={{ display: sidebarTab === "chat" ? "flex" : "none", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
-        </div>
-      </div>
-    </>
+          {label}
+          {badge > 0 && (
+            <span style={{ background:"var(--accent)", color:"#fff", borderRadius:"10px", fontSize:"10px", fontWeight:700, padding:"1px 7px", minWidth:18, textAlign:"center" }}>
+              {badge > 99 ? "99+" : badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100dvh", width: "100%", background: "var(--bg)", overflow: "hidden" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100dvh", width:"100%", background:"var(--bg)", overflow:"hidden" }}>
 
-      {/* ── Top bar ── */}
+      {/* ════════════════════════════════════════
+          TOP BAR
+      ════════════════════════════════════════ */}
       <header style={{
-        width: "100%", flexShrink: 0,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 clamp(10px,2vw,20px)", height: "clamp(48px,7vw,56px)",
-        background: "var(--bg2)", borderBottom: "1px solid var(--border)", zIndex: 50,
+        width:"100%", flexShrink:0,
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        padding:"0 14px", height:"52px",
+        background:"var(--bg2)", borderBottom:"1px solid var(--border)", zIndex:50,
       }}>
-        {/* Left */}
-        <div style={{ display: "flex", alignItems: "center", gap: "clamp(8px,2vw,16px)", minWidth: 0 }}>
-          <span style={{ fontWeight: 800, fontSize: "clamp(13px,2.5vw,16px)", whiteSpace: "nowrap" }}>🎬 WatchParty</span>
-          <div style={{ width: 1, height: 18, background: "var(--border)", flexShrink: 0 }} />
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
-            <span style={{ fontSize: "11px", color: "var(--text2)", flexShrink: 0 }}>Room</span>
+        {/* Left: logo + room code */}
+        <div style={{ display:"flex", alignItems:"center", gap:"10px", minWidth:0 }}>
+          <span style={{ fontWeight:800, fontSize:"15px", whiteSpace:"nowrap" }}>🎬</span>
+          <div style={{ display:"flex", alignItems:"center", gap:"6px", minWidth:0 }}>
             <code style={{
-              background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "6px",
-              padding: "2px clamp(6px,1.5vw,10px)", fontSize: "clamp(11px,2vw,13px)",
-              fontWeight: 700, letterSpacing: "1px", color: "var(--accent)", whiteSpace: "nowrap",
+              background:"var(--bg3)", border:"1px solid var(--border)", borderRadius:"6px",
+              padding:"3px 10px", fontSize:"13px", fontWeight:700, letterSpacing:"1.5px",
+              color:"var(--accent)", whiteSpace:"nowrap",
             }}>{room.roomCode}</code>
             <button onClick={() => navigator.clipboard.writeText(room.roomCode)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text2)", fontSize: "14px", padding: "2px", flexShrink: 0 }}>📋</button>
+              title="Copy room code"
+              style={{ background:"none", border:"none", cursor:"pointer", color:"var(--text2)", fontSize:"15px", padding:"2px", flexShrink:0 }}>
+              📋
+            </button>
           </div>
         </div>
 
-        {/* Right */}
-        <div style={{ display: "flex", alignItems: "center", gap: "clamp(6px,1.5vw,12px)", flexShrink: 0 }}>
-          <span style={{ fontSize: "clamp(11px,1.8vw,13px)", color: "var(--text2)" }}>👥 {room.participants.length}</span>
+        {/* Right: role + leave */}
+        <div style={{ display:"flex", alignItems:"center", gap:"8px", flexShrink:0 }}>
           <span style={{
-            background: ROLE_BG[myRole], color: ROLE_COLORS[myRole],
-            border: `1px solid ${ROLE_COLORS[myRole]}`,
-            padding: "2px clamp(6px,1.5vw,10px)", borderRadius: "20px",
-            fontSize: "clamp(10px,1.6vw,12px)", fontWeight: 700, textTransform: "uppercase",
+            background:ROLE_BG[myRole], color:ROLE_COLORS[myRole],
+            border:`1px solid ${ROLE_COLORS[myRole]}`,
+            padding:"3px 10px", borderRadius:"20px",
+            fontSize:"11px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px",
           }}>{myRole}</span>
-          {/* Toggle sidebar button — visible on small screens */}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)}
-            style={{ background: sidebarOpen ? "var(--accent)" : "var(--bg3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "5px 10px", cursor: "pointer", fontSize: "14px", color: sidebarOpen ? "#fff" : "var(--text2)" }}>
-            💬{unreadCount > 0 && !sidebarOpen ? ` ${unreadCount}` : ""}
-          </button>
-          <button onClick={handleLeave} disabled={leaving}
-            style={leaving ? { ...btnDanger, opacity: 0.5, cursor: "not-allowed" } : btnDanger}>
+          <button onClick={handleLeave} disabled={leaving} style={{
+            background:"rgba(248,81,73,0.12)", color:"var(--red)",
+            border:"1px solid rgba(248,81,73,0.3)", borderRadius:"8px",
+            padding:"6px 14px", fontSize:"13px", fontWeight:600,
+            cursor: leaving ? "not-allowed" : "pointer",
+            opacity: leaving ? 0.5 : 1,
+          }}>
             {leaving ? "…" : "Leave"}
           </button>
         </div>
       </header>
 
-      {/* ── Body ── */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+      {/* ════════════════════════════════════════
+          BODY  (desktop: row | mobile: column)
+      ════════════════════════════════════════ */}
+      <div className="room-body" style={{ flex:1, overflow:"hidden", position:"relative" }}>
 
-        {/* Video panel — always visible, takes remaining width */}
-        <main style={{ flex: 1, padding: "clamp(10px,2vw,20px)", overflowY: "auto", minWidth: 0 }}>
+        {/* ── Video panel ── */}
+        <main className="room-video" style={{ overflowY:"auto", minWidth:0 }}>
           <VideoPlayer
             roomCode={room.roomCode}
-            video={room.video || { videoId: "", currentTime: 0, isPlaying: false }}
+            video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
             isController={isController}
             onVideoUpdate={handleVideoUpdate}
           />
         </main>
 
-        {/* Sidebar — fixed 300px on large screens, full overlay on small screens.
-            Uses a CSS clamp trick: width clamp(0px,30vw,320px) so it naturally
-            disappears when viewport is narrow, and the toggle shows a sheet instead. */}
-        <aside style={{
-          /* On wide screens: inline sidebar */
-          width: "clamp(0px,35vw,320px)",
-          flexShrink: 0,
-          borderLeft: "1px solid var(--border)",
-          background: "var(--bg2)",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          transition: "width 0.2s",
-        }}>
-          {sidebarContent}
+        {/* ── Desktop sidebar (hidden on mobile via CSS) ── */}
+        <aside className="room-sidebar">
+          {tabBar(false)}
+          {tabContent}
         </aside>
 
-        {/* Mobile overlay panel — shown when sidebarOpen on narrow screens */}
-        {sidebarOpen && (
+        {/* ── Mobile bottom sheet ── */}
+        {sheetOpen && (
           <>
-            {/* Backdrop */}
-            <div onClick={() => setSidebarOpen(false)}
-              style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100 }} />
-            {/* Sheet slides up from bottom */}
-            <div style={{
-              position: "absolute", bottom: 0, left: 0, right: 0,
-              height: "70%", background: "var(--bg2)",
-              borderTop: "1px solid var(--border)", borderRadius: "16px 16px 0 0",
-              zIndex: 101, display: "flex", flexDirection: "column",
-              animation: "slideUp 0.2s ease",
-            }}>
-              {/* Handle */}
-              <div style={{ display: "flex", justifyContent: "center", padding: "10px", flexShrink: 0 }}>
-                <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--border)" }} />
+            <div onClick={() => setSheetOpen(false)}
+              style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.6)", zIndex:200 }} />
+            <div className="room-sheet">
+              {/* drag handle */}
+              <div style={{ display:"flex", justifyContent:"center", padding:"10px 0 4px", flexShrink:0 }}>
+                <div style={{ width:40, height:4, borderRadius:2, background:"var(--border)" }} />
               </div>
-              {sidebarContent}
+              {tabBar(true)}
+              {tabContent}
             </div>
           </>
         )}
       </div>
 
+      {/* ════════════════════════════════════════
+          MOBILE BOTTOM NAV BAR
+          (hidden on desktop via CSS)
+      ════════════════════════════════════════ */}
+      <nav className="room-bottom-nav">
+        <button onClick={() => openSheet("chat")} style={navBtn}>
+          <span style={{ fontSize:"20px" }}>💬</span>
+          <span style={{ fontSize:"10px", fontWeight:600 }}>Chat</span>
+          {unreadCount > 0 && (
+            <span style={{
+              position:"absolute", top:6, right:"calc(50% - 22px)",
+              background:"var(--accent)", color:"#fff",
+              borderRadius:"10px", fontSize:"9px", fontWeight:700,
+              padding:"1px 5px", minWidth:16, textAlign:"center",
+            }}>{unreadCount > 99 ? "99+" : unreadCount}</span>
+          )}
+        </button>
+        <button onClick={() => openSheet("participants")} style={navBtn}>
+          <span style={{ fontSize:"20px" }}>👥</span>
+          <span style={{ fontSize:"10px", fontWeight:600 }}>
+            {room.participants.length} People
+          </span>
+        </button>
+        <button onClick={handleLeave} disabled={leaving} style={{
+          ...navBtn,
+          color:"var(--red)",
+          opacity: leaving ? 0.5 : 1,
+        }}>
+          <span style={{ fontSize:"20px" }}>🚪</span>
+          <span style={{ fontSize:"10px", fontWeight:600 }}>{leaving ? "…" : "Leave"}</span>
+        </button>
+      </nav>
+
+      {/* ════════════════════════════════════════
+          RESPONSIVE STYLES
+      ════════════════════════════════════════ */}
       <style>{`
+        /* ── Desktop (≥ 700px): side-by-side layout ── */
+        .room-body {
+          display: flex;
+          flex-direction: row;
+        }
+        .room-video {
+          flex: 1;
+          padding: 20px;
+        }
+        .room-sidebar {
+          width: 300px;
+          flex-shrink: 0;
+          border-left: 1px solid var(--border);
+          background: var(--bg2);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .room-sheet  { display: none; }
+        .room-bottom-nav { display: none; }
+
+        /* ── Mobile (< 700px): stacked layout ── */
+        @media (max-width: 699px) {
+          .room-body {
+            flex-direction: column;
+            overflow-y: auto;
+          }
+          .room-video {
+            flex: none;
+            padding: 12px 12px 8px;
+          }
+          .room-sidebar {
+            display: none !important;
+          }
+          /* bottom sheet */
+          .room-sheet {
+            display: flex;
+            flex-direction: column;
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 72%;
+            background: var(--bg2);
+            border-top: 1px solid var(--border);
+            border-radius: 18px 18px 0 0;
+            z-index: 201;
+            animation: slideUp 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+            overflow: hidden;
+          }
+          /* bottom nav bar */
+          .room-bottom-nav {
+            display: flex;
+            flex-shrink: 0;
+            background: var(--bg2);
+            border-top: 1px solid var(--border);
+            height: 60px;
+          }
+        }
+
         @keyframes slideUp {
-          from { transform: translateY(100%); opacity: 0; }
-          to   { transform: translateY(0);    opacity: 1; }
+          from { transform: translateY(100%); }
+          to   { transform: translateY(0); }
         }
       `}</style>
     </div>
   );
 }
 
-const btnDanger = {
-  background: "rgba(248,81,73,0.15)", color: "var(--red)",
-  border: "1px solid rgba(248,81,73,0.3)",
-  borderRadius: "8px", padding: "5px clamp(8px,1.5vw,14px)",
-  fontSize: "clamp(11px,1.8vw,13px)", fontWeight: 600, cursor: "pointer",
+const navBtn = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "3px",
+  background: "transparent",
+  border: "none",
+  color: "var(--text2)",
+  cursor: "pointer",
+  position: "relative",
+  padding: "8px 4px",
 };
