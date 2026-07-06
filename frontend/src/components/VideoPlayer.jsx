@@ -13,11 +13,14 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
   // After that click we have a "user gesture" so playVideo() will play with sound.
   const [audioUnlocked, setAudioUnlocked] = useState(isController);
 
-  // Stores a pending play command that arrived before the user clicked
-  const pendingPlay = useRef(null);
-
   const playerRef = useRef(null);
   const suppressCount = useRef(0);
+
+  // Track whether we're in a remote-paused state so we can keep audio off across seeks
+  const remotePausedRef = useRef(false);
+
+  // Stores a pending play command that arrived before the user clicked
+  const pendingPlay = useRef(null);
 
   // ─── Request current state on mount ──────────────────────────
   useEffect(() => {
@@ -46,6 +49,8 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
     // If a play command came in while we were waiting, execute it now
     if (pendingPlay.current && playerRef.current) {
       const { currentTime } = pendingPlay.current;
+      remotePausedRef.current = false;
+      playerRef.current.unMute();
       playerRef.current.seekTo(currentTime, true);
       suppressCount.current += 1;
       playerRef.current.playVideo();
@@ -85,15 +90,16 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
       const player = playerRef.current;
       if (!player) return;
 
+      remotePausedRef.current = false;
       const latencyS = res.sentAt ? (Date.now() - res.sentAt) / 1000 : 0;
       const targetTime = res.data.currentTime + latencyS;
 
       if (!audioUnlocked) {
-        // Audio not unlocked yet — store the command and wait for user click
         pendingPlay.current = { currentTime: targetTime };
         return;
       }
 
+      player.unMute();
       player.seekTo(targetTime, true);
       suppressCount.current += 1;
       player.playVideo();
@@ -103,7 +109,9 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
       if (!res.success) return;
       const player = playerRef.current;
       if (!player) return;
-      pendingPlay.current = null; // cancel any pending play
+      remotePausedRef.current = true;
+      pendingPlay.current = null;
+      player.mute();
       player.seekTo(res.data.currentTime, true);
       suppressCount.current += 1;
       player.pauseVideo();
@@ -127,18 +135,23 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
       const playerState = player.getPlayerState();
 
       if (playState === "playing" && playerState !== 1) {
+        remotePausedRef.current = false;
         if (!audioUnlocked) {
           pendingPlay.current = { currentTime };
           return;
         }
+        player.unMute();
         player.seekTo(currentTime, true);
         suppressCount.current += 1;
         player.playVideo();
       } else if (playState === "paused" && playerState !== 2) {
+        remotePausedRef.current = true;
+        pendingPlay.current = null;
+        player.mute();
         player.seekTo(currentTime, true);
         suppressCount.current += 1;
         player.pauseVideo();
-      } else if (timeDiff > SYNC_THRESHOLD_S) {
+      } else if (timeDiff > SYNC_THRESHOLD_S && playState === "playing") {
         player.seekTo(currentTime, true);
       }
     });
@@ -150,7 +163,7 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
       socket.off("video_seeked");
       socket.off("sync_state");
     };
-  }, [roomCode, audioUnlocked]);
+  }, [roomCode, audioUnlocked, onVideoUpdate]);
 
   // ─── Controller: periodic sync_time heartbeat ────────────────
   useEffect(() => {
@@ -174,7 +187,8 @@ function VideoPlayer({ roomCode, video, isController, onVideoUpdate }) {
     if (isController) return;
     const onSyncTime = ({ currentTime, sentAt }) => {
       const player = playerRef.current;
-      if (!player) return;
+      if (!player || remotePausedRef.current) return;
+      if (player.getPlayerState() !== 1) return;
       const latencyS = (Date.now() - sentAt) / 1000;
       const target = currentTime + latencyS;
       if (Math.abs(player.getCurrentTime() - target) > SYNC_THRESHOLD_S) {

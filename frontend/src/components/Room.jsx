@@ -17,6 +17,16 @@ function RoomInner({ room: initialRoom, onLeave }) {
   const [unreadCount, setUnread]     = useState(0);
   // desktop sidebar tab
   const [sidebarTab,  setSidebarTab] = useState("chat");
+  const [isMobile,    setIsMobile]   = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 699px)").matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 699px)");
+    const onChange = (e) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const me           = room.participants.find((p) => p.socketId === socket.id);
   const myRole       = me?.role || "participant";
@@ -70,12 +80,25 @@ function RoomInner({ room: initialRoom, onLeave }) {
 
   const handleVideoUpdate = useCallback((v) => setRoom((p) => ({ ...p, video: v })), []);
 
+  const videoPlayer = (
+    <VideoPlayer
+      roomCode={room.roomCode}
+      video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
+      isController={isController}
+      onVideoUpdate={handleVideoUpdate}
+    />
+  );
+
   const handleUnread = useCallback(() => {
-    setActiveTab((tab) => {
-      if (tab !== "chat") setUnread((n) => n + 1);
-      return tab;
-    });
-  }, []);
+    const chatVisible = isMobile
+      ? activeTab === "chat"
+      : sidebarTab === "chat";
+    if (!chatVisible) setUnread((n) => n + 1);
+  }, [isMobile, activeTab, sidebarTab]);
+
+  const chatPanel = (
+    <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+  );
 
   // ─── Kicked screen ──────────────────────────────────────────
   if (kicked) {
@@ -91,21 +114,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
     );
   }
 
-  // ─── Shared panel content (desktop sidebar + mobile panels) ─
-  // Both Chat and Participants are always mounted — Chat never loses
-  // its socket listener due to tab switching.
-  const panelContent = (
-    <div style={{ flex:1, minHeight:0, overflow:"hidden", display:"flex", flexDirection:"column", position:"relative" }}>
-      <div style={{ display: activeTab === "participants" || sidebarTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          <ParticipantList participants={room.participants} myRole={myRole} roomCode={room.roomCode} />
-        </div>
-      </div>
-      <div style={{ display: activeTab === "chat" || sidebarTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
-        <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
-      </div>
-    </div>
-  );
+  const panelContent = null; // kept as placeholder — content rendered inline below
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100dvh", width:"100%", background:"var(--bg)", overflow:"hidden" }}>
@@ -154,12 +163,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
       {/* ════════ DESKTOP BODY (≥700px) ════════ */}
       <div className="desktop-body">
         <main className="desktop-video">
-          <VideoPlayer
-            roomCode={room.roomCode}
-            video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
-            isController={isController}
-            onVideoUpdate={handleVideoUpdate}
-          />
+          {!isMobile && videoPlayer}
         </main>
         <aside className="desktop-sidebar">
           {/* Desktop tab bar */}
@@ -192,7 +196,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
               </div>
             </div>
             <div style={{ display: sidebarTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
-              <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+              {!isMobile && chatPanel}
             </div>
           </div>
         </aside>
@@ -206,12 +210,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
 
         {/* Video strip — fixed 16:9 aspect */}
         <div className="mobile-video">
-          <VideoPlayer
-            roomCode={room.roomCode}
-            video={room.video || { videoId:"", currentTime:0, isPlaying:false }}
-            isController={isController}
-            onVideoUpdate={handleVideoUpdate}
-          />
+          {isMobile && videoPlayer}
         </div>
 
         {/* Tab switcher */}
@@ -255,7 +254,7 @@ function RoomInner({ room: initialRoom, onLeave }) {
           )}
           {/* Chat panel */}
           <div style={{ display: activeTab === "chat" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden", minHeight:0 }}>
-            <Chat roomCode={room.roomCode} me={me} onUnread={handleUnread} />
+            {isMobile && chatPanel}
           </div>
           {/* Participants panel */}
           <div style={{ display: activeTab === "participants" ? "flex" : "none", flexDirection:"column", flex:1, overflow:"hidden" }}>
@@ -339,14 +338,6 @@ function RoomInner({ room: initialRoom, onLeave }) {
     </div>
   );
 }
-
-const navBtn = {
-  flex: 1,
-  display: "flex", flexDirection: "column",
-  alignItems: "center", justifyContent: "center",
-  gap: "3px", background: "transparent", border: "none",
-  color: "var(--text2)", cursor: "pointer", padding: "8px 4px",
-};
 
 export default function Room(props) {
   return (
