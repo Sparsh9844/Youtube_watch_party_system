@@ -31,18 +31,23 @@ export default function Room({ room: initialRoom, onLeave }) {
   }, []);
 
   // Clear unread when switching to chat — done in the click handler, not an effect
-  const switchSidebarTab = (key) => {
+  const switchSidebarTab = useCallback((key) => {
     setSidebarTab(key);
     if (key === "chat") setUnread(0);
-  };
+  }, []);
 
   const handleLeave = () => {
     setLeaving(true);
     socket.emit("leave_room", { roomCode: room.roomCode }, () => onLeave());
   };
 
-  const handleVideoUpdate = (v) => setRoom((p) => ({ ...p, video: v }));
-  const handleUnread = () => { if (sidebarTab !== "chat") setUnread((n) => n + 1); };
+  const handleVideoUpdate = useCallback((v) => setRoom((p) => ({ ...p, video: v })), []);
+  const handleUnread = useCallback(() => {
+    setSidebarTab((tab) => {
+      if (tab !== "chat") setUnread((n) => n + 1);
+      return tab;
+    });
+  }, []);
 
   if (kicked) {
     return (
@@ -60,7 +65,7 @@ export default function Room({ room: initialRoom, onLeave }) {
       {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         {[{ key: "participants", label: "Participants", badge: null }, { key: "chat", label: "Chat", badge: unreadCount }].map(({ key, label, badge }) => (
-          <button key={key} onClick={() => setSidebarTab(key)} style={{
+          <button key={key} onClick={() => switchSidebarTab(key)} style={{
             flex: 1, padding: "12px 8px", background: "transparent", border: "none",
             borderBottom: sidebarTab === key ? "2px solid var(--accent)" : "2px solid transparent",
             color: sidebarTab === key ? "var(--text)" : "var(--text2)",

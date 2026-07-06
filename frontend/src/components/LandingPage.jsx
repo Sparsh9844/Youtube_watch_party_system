@@ -309,7 +309,7 @@ export default function LandingPage({ connectionStatus, onRoomJoined }) {
             <span style={{ fontSize: "18px" }}>🎬</span>
             <span style={{ fontWeight: 700, fontSize: "clamp(13px,2vw,15px)" }}>WatchParty</span>
           </div>
-          <p style={{ fontSize: "clamp(11px,1.8vw,13px)", color: "var(--text2)" }}>Built with ❤️ — YouTube Watch Party System</p>
+          <p style={{ fontSize: "clamp(11px,1.8vw,13px)", color: "var(--text2)" }}>Built with ❤️ by Sparsh — YouTube Watch Party System</p>
         </div>
       </footer>
     </div>
