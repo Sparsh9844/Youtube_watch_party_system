@@ -258,6 +258,15 @@ socket.on("disconnecting", async () => {
 
 ---
 
+##DEMO
+##LANDING PAGE
+<img width="2628" height="4874" alt="image" src="https://github.com/user-attachments/assets/ea8e44a3-0115-4afb-a763-ce75abd1837e" />
+
+##MEETING ROOM & CHAT SECTION & PARTICIPANT SECTION WITH PASTE URL
+<img width="2876" height="1542" alt="image" src="https://github.com/user-attachments/assets/61aa5943-e900-4553-ac8b-7fe30bfb2875" />
+
+
+
 ## Author
 
 **Sparsh Chauhan** · [GitHub](https://github.com/Sparsh9844)
